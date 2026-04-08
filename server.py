@@ -197,7 +197,9 @@ def create_request(req: ApprovalCreate):
 
 
 @app.get("/api/requests")
-def list_requests(status: Optional[str] = None, requester: Optional[str] = None):
+def list_requests(status: Optional[str] = None, requester: Optional[str] = None,
+                  q: Optional[str] = None, priority: Optional[str] = None,
+                  tag: Optional[str] = None):
     """List approval requests with optional filters."""
     query = "SELECT * FROM requests WHERE 1=1"
     params = []
@@ -209,6 +211,17 @@ def list_requests(status: Optional[str] = None, requester: Optional[str] = None)
     if requester:
         query += " AND requester = ?"
         params.append(requester)
+    if priority:
+        if priority not in VALID_PRIORITIES:
+            raise HTTPException(400, f"Invalid priority. Use one of: {VALID_PRIORITIES}")
+        query += " AND priority = ?"
+        params.append(priority)
+    if q:
+        query += " AND (title LIKE ? OR plan LIKE ? OR context LIKE ?)"
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+    if tag:
+        query += " AND tags LIKE ?"
+        params.append(f'%"{tag}"%')
     query += " ORDER BY created_at DESC"
 
     with get_db() as db:
