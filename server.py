@@ -12,11 +12,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from contextlib import contextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 import urllib.request
 import threading
 
@@ -25,8 +27,30 @@ STATIC_DIR = Path(__file__).parent / "static"
 HOST = os.environ.get("CHOCK_HOST", "127.0.0.1")
 PORT = int(os.environ.get("CHOCK_PORT", "8796"))
 WEBHOOK_URLS = [u.strip() for u in os.environ.get("CHOCK_WEBHOOKS", "").split(",") if u.strip()]
+API_KEY = os.environ.get("CHOCK_API_KEY", "")
 
-app = FastAPI(title="Chock", version="1.0.0")
+app = FastAPI(title="Chock", version="1.1.0")
+
+
+# --- Optional API Key Auth ---
+
+READ_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+class ApiKeyMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if not API_KEY:
+            return await call_next(request)
+        path = request.url.path
+        if path == "/" or path.startswith("/static") or path == "/health":
+            return await call_next(request)
+        if request.method in READ_METHODS:
+            return await call_next(request)
+        key = request.headers.get("x-api-key") or request.headers.get("authorization", "").removeprefix("Bearer ")
+        if key != API_KEY:
+            return JSONResponse(status_code=401, content={"detail": "Invalid or missing API key"})
+        return await call_next(request)
+
+app.add_middleware(ApiKeyMiddleware)
 
 
 # --- Webhooks ---
@@ -46,8 +70,8 @@ def fire_webhooks(event: str, request_id: str, details: dict):
             try:
                 req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
                 urllib.request.urlopen(req, timeout=5)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[chock] Webhook failed ({url}): {e}", flush=True)
     threading.Thread(target=_fire, daemon=True).start()
 
 
@@ -62,8 +86,8 @@ def fire_callback(callback_url: str, request_id: str, result: dict):
         try:
             req = urllib.request.Request(callback_url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
             urllib.request.urlopen(req, timeout=10)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[chock] Callback failed ({callback_url}): {e}", flush=True)
     threading.Thread(target=_fire, daemon=True).start()
 
 

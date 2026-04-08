@@ -99,6 +99,7 @@ Provide a `callback_url` in your request and Chock will POST the full response w
 | `CHOCK_PORT` | `8796` | Port number |
 | `CHOCK_DB` | `./data/approvals.db` | SQLite database path |
 | `CHOCK_WEBHOOKS` | (none) | Comma-separated webhook URLs |
+| `CHOCK_API_KEY` | (none) | Optional API key for write operations (reads remain open) |
 
 ## Dependencies
 
