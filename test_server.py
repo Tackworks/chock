@@ -786,3 +786,103 @@ class TestEdgeCases:
         activity = client.get("/api/activity").json()
         cancel_entry = [a for a in activity if a["action"] == "cancelled"][0]
         assert cancel_entry["actor"] == "jim"
+
+
+# ---------------------------------------------------------------------------
+# Auth middleware tests
+# ---------------------------------------------------------------------------
+
+class TestAuth:
+    """Test API key authentication middleware.
+
+    These tests set CHOCK_API_KEY and reload the server module to activate
+    the auth middleware, following the same pattern as TestWebhooks.
+    """
+
+    def _make_auth_client(self, tmp_path, api_key="test-secret-key"):
+        """Create a TestClient with API key auth enabled."""
+        db_path = str(tmp_path / "test_auth.db")
+        os.environ["CHOCK_DB"] = db_path
+        os.environ["CHOCK_API_KEY"] = api_key
+        os.environ.pop("CHOCK_WEBHOOKS", None)
+
+        import importlib
+        import server as srv
+        importlib.reload(srv)
+
+        return TestClient(srv.app)
+
+    def _cleanup_env(self):
+        """Remove CHOCK_API_KEY from env after test."""
+        os.environ.pop("CHOCK_API_KEY", None)
+
+    def test_auth_blocks_write_without_key(self, tmp_path):
+        """POST to /api/requests without API key should return 401."""
+        tc = self._make_auth_client(tmp_path)
+        try:
+            with tc:
+                resp = tc.post("/api/requests", json={"title": "Should fail"})
+                assert resp.status_code == 401
+                assert "Invalid or missing API key" in resp.json()["detail"]
+        finally:
+            self._cleanup_env()
+
+    def test_auth_allows_write_with_key(self, tmp_path):
+        """POST to /api/requests with correct X-API-Key header should return 201."""
+        tc = self._make_auth_client(tmp_path)
+        try:
+            with tc:
+                resp = tc.post("/api/requests",
+                               json={"title": "Should work"},
+                               headers={"X-API-Key": "test-secret-key"})
+                assert resp.status_code == 201
+        finally:
+            self._cleanup_env()
+
+    def test_auth_bearer_header(self, tmp_path):
+        """Authorization: Bearer header should authenticate writes."""
+        tc = self._make_auth_client(tmp_path)
+        try:
+            with tc:
+                resp = tc.post("/api/requests",
+                               json={"title": "Bearer test"},
+                               headers={"Authorization": "Bearer test-secret-key"})
+                assert resp.status_code == 201
+        finally:
+            self._cleanup_env()
+
+    def test_auth_wrong_key(self, tmp_path):
+        """Wrong API key should return 401."""
+        tc = self._make_auth_client(tmp_path)
+        try:
+            with tc:
+                resp = tc.post("/api/requests",
+                               json={"title": "Wrong key"},
+                               headers={"X-API-Key": "wrong-key"})
+                assert resp.status_code == 401
+        finally:
+            self._cleanup_env()
+
+    def test_auth_reads_work_without_key(self, tmp_path):
+        """GET /api/requests and GET /health should work without an API key."""
+        tc = self._make_auth_client(tmp_path)
+        try:
+            with tc:
+                resp = tc.get("/api/requests")
+                assert resp.status_code == 200
+
+                resp = tc.get("/health")
+                assert resp.status_code == 200
+        finally:
+            self._cleanup_env()
+
+    def test_auth_health_exempt(self, tmp_path):
+        """/health is always accessible, even without any key."""
+        tc = self._make_auth_client(tmp_path)
+        try:
+            with tc:
+                resp = tc.get("/health")
+                assert resp.status_code == 200
+                assert resp.json()["status"] == "ok"
+        finally:
+            self._cleanup_env()

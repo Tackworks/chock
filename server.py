@@ -8,14 +8,17 @@ import sqlite3
 import json
 import uuid
 import os
+import hmac
+import ipaddress
 from datetime import datetime, timezone
 from pathlib import Path
 from contextlib import contextmanager
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
@@ -28,6 +31,55 @@ HOST = os.environ.get("CHOCK_HOST", "127.0.0.1")
 PORT = int(os.environ.get("CHOCK_PORT", "8796"))
 WEBHOOK_URLS = [u.strip() for u in os.environ.get("CHOCK_WEBHOOKS", "").split(",") if u.strip()]
 API_KEY = os.environ.get("CHOCK_API_KEY", "")
+
+# --- SSRF Protection ---
+
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+]
+
+def is_url_safe(url: str) -> bool:
+    """Validate that a URL is safe to call (no SSRF to internal networks).
+
+    Blocks:
+    - Non-http(s) schemes
+    - Private/loopback IPv4 ranges: 10/8, 172.16/12, 192.168/16, 127/8, 169.254/16
+    - IPv6 loopback (::1)
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+
+    if parsed.scheme not in ("http", "https"):
+        return False
+
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+
+    try:
+        addr = ipaddress.ip_address(hostname)
+    except ValueError:
+        # Not a raw IP — hostname like "example.com" is allowed.
+        # DNS rebinding is out of scope for this check.
+        return True
+
+    # Check IPv6 loopback
+    if addr == ipaddress.ip_address("::1"):
+        return False
+
+    # Check blocked IPv4 ranges
+    for network in _BLOCKED_NETWORKS:
+        if addr in network:
+            return False
+
+    return True
+
 
 app = FastAPI(title="Chock", version="1.1.0")
 
@@ -46,7 +98,7 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         if request.method in READ_METHODS:
             return await call_next(request)
         key = request.headers.get("x-api-key") or request.headers.get("authorization", "").removeprefix("Bearer ")
-        if key != API_KEY:
+        if not hmac.compare_digest(key, API_KEY):
             return JSONResponse(status_code=401, content={"detail": "Invalid or missing API key"})
         return await call_next(request)
 
@@ -67,6 +119,9 @@ def fire_webhooks(event: str, request_id: str, details: dict):
     }).encode()
     def _fire():
         for url in WEBHOOK_URLS:
+            if not is_url_safe(url):
+                print(f"[chock] Webhook blocked (SSRF protection): {url}", flush=True)
+                continue
             try:
                 req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
                 urllib.request.urlopen(req, timeout=5)
@@ -82,6 +137,9 @@ def fire_callback(callback_url: str, request_id: str, result: dict):
         "result": result,
         "timestamp": now_iso()
     }).encode()
+    if not is_url_safe(callback_url):
+        print(f"[chock] Callback blocked (SSRF protection): {callback_url}", flush=True)
+        return
     def _fire():
         try:
             req = urllib.request.Request(callback_url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
@@ -128,6 +186,8 @@ def init_db():
 @contextmanager
 def get_db():
     conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -146,27 +206,35 @@ VALID_PRIORITIES = ["low", "normal", "high", "critical"]
 VALID_STATUSES = ["pending", "approved", "denied", "conditional"]
 
 class ConditionField(BaseModel):
-    key: str
-    label: str
+    key: str = Field(max_length=100)
+    label: str = Field(max_length=500)
     type: str = "text"  # text, number, boolean, select
     options: list[str] = []  # for select type
     required: bool = False
-    description: str = ""
+    description: str = Field(default="", max_length=2000)
 
 class ApprovalCreate(BaseModel):
-    title: str
-    plan: str = ""
-    requester: str = ""
-    context: str = ""
-    tags: list[str] = []
+    title: str = Field(max_length=500)
+    plan: str = Field(default="", max_length=10000)
+    requester: str = Field(default="", max_length=200)
+    context: str = Field(default="", max_length=10000)
+    tags: list[str] = Field(default=[], max_length=50)
     priority: str = "normal"
-    callback_url: str = ""
+    callback_url: str = Field(default="", max_length=2000)
     conditions_schema: list[ConditionField] = []
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tag_lengths(cls, v):
+        for tag in v:
+            if len(tag) > 100:
+                raise ValueError("Each tag must be 100 characters or fewer")
+        return v
 
 class ApprovalRespond(BaseModel):
     status: str  # approved, denied, conditional
-    responder: str = ""
-    comment: str = ""
+    responder: str = Field(default="", max_length=200)
+    comment: str = Field(default="", max_length=10000)
     conditions: dict = {}  # filled in for conditional approvals
 
 
@@ -353,6 +421,7 @@ def cancel_request(request_id: str, requester: Optional[str] = None):
 @app.get("/api/activity")
 def get_activity(limit: int = 50):
     """Get recent activity log."""
+    limit = min(limit, 1000)
     with get_db() as db:
         rows = db.execute(
             "SELECT * FROM activity ORDER BY timestamp DESC LIMIT ?", (limit,)
