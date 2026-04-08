@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chock</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --surface-hover: #1c2129;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-dim: #8b949e;
+  --green: #3fb950;
+  --green-bg: rgba(63,185,80,0.15);
+  --red: #f85149;
+  --red-bg: rgba(248,81,73,0.15);
+  --amber: #d29922;
+  --amber-bg: rgba(210,153,34,0.15);
+  --blue: #4ea8de;
+  --blue-bg: rgba(78,168,222,0.15);
+  --critical: #f85149;
+  --high: #d29922;
+  --normal: #8b949e;
+  --low: #484f58;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
+
+header {
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+header h1 { font-size: 20px; font-weight: 600; }
+header h1 span { color: var(--text-dim); font-weight: 400; font-size: 14px; margin-left: 8px; }
+.header-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.stat-num { color: var(--text); font-weight: 600; }
+
+.container { max-width: 900px; margin: 0 auto; padding: 24px; }
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.section-header h2 { font-size: 16px; font-weight: 600; }
+.section-header .count { color: var(--text-dim); font-size: 13px; }
+
+.empty-state {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-dim);
+  font-size: 14px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+/* Request cards */
+.request-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: border-color 0.2s;
+}
+.request-card:hover { border-color: var(--blue); }
+.request-card.priority-critical { border-left: 3px solid var(--critical); }
+.request-card.priority-high { border-left: 3px solid var(--high); }
+.request-card.status-approved { border-left: 3px solid var(--green); }
+.request-card.status-denied { border-left: 3px solid var(--red); }
+.request-card.status-conditional { border-left: 3px solid var(--amber); }
+
+.request-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.request-title { font-weight: 600; font-size: 15px; }
+.request-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.priority-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.priority-badge.critical { background: var(--red-bg); color: var(--critical); }
+.priority-badge.high { background: var(--amber-bg); color: var(--high); }
+.priority-badge.normal { background: rgba(139,148,158,0.15); color: var(--normal); }
+.priority-badge.low { color: var(--low); }
+
+.status-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.status-badge.approved { background: var(--green-bg); color: var(--green); }
+.status-badge.denied { background: var(--red-bg); color: var(--red); }
+.status-badge.conditional { background: var(--amber-bg); color: var(--amber); }
+.status-badge.pending { background: var(--blue-bg); color: var(--blue); }
+
+.request-plan {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 8px 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.request-context {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.request-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.request-tags { display: flex; gap: 4px; }
+.tag {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
+/* Action buttons */
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--surface);
+  color: var(--text);
+  transition: all 0.15s;
+}
+.btn:hover { background: var(--surface-hover); }
+.btn-approve { border-color: var(--green); color: var(--green); }
+.btn-approve:hover { background: var(--green-bg); }
+.btn-deny { border-color: var(--red); color: var(--red); }
+.btn-deny:hover { background: var(--red-bg); }
+.btn-conditional { border-color: var(--amber); color: var(--amber); }
+.btn-conditional:hover { background: var(--amber-bg); }
+
+/* Conditions form */
+.conditions-form {
+  background: var(--bg);
+  border: 1px solid var(--amber);
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 8px;
+  display: none;
+}
+.conditions-form.visible { display: block; }
+.conditions-form h4 { font-size: 13px; color: var(--amber); margin-bottom: 8px; }
+.condition-field { margin-bottom: 8px; }
+.condition-field label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.condition-field label .required { color: var(--red); }
+.condition-field input, .condition-field select, .condition-field textarea {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+.condition-field textarea { resize: vertical; min-height: 60px; }
+.conditions-actions { display: flex; gap: 8px; margin-top: 8px; }
+
+/* Response display */
+.response-box {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+.response-box.approved { background: var(--green-bg); border: 1px solid rgba(63,185,80,0.3); }
+.response-box.denied { background: var(--red-bg); border: 1px solid rgba(248,81,73,0.3); }
+.response-box.conditional { background: var(--amber-bg); border: 1px solid rgba(210,153,34,0.3); }
+.response-comment { margin-top: 4px; font-style: italic; color: var(--text-dim); }
+.response-conditions { margin-top: 6px; }
+.response-conditions dt { font-weight: 600; font-size: 12px; color: var(--text-dim); }
+.response-conditions dd { margin-left: 0; margin-bottom: 4px; }
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+.tab {
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-dim);
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--text); border-bottom-color: var(--blue); }
+.tab .tab-count {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0 6px;
+  font-size: 11px;
+  margin-left: 4px;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Chock <span>approval queue</span></h1>
+  <div class="header-stats">
+    <div><span class="stat-num" id="pending-count">0</span> pending</div>
+    <div><span class="stat-num" id="total-count">0</span> total</div>
+  </div>
+</header>
+
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" data-tab="pending" onclick="switchTab('pending')">Pending <span class="tab-count" id="tab-pending-count">0</span></button>
+    <button class="tab" data-tab="responded" onclick="switchTab('responded')">Responded <span class="tab-count" id="tab-responded-count">0</span></button>
+    <button class="tab" data-tab="all" onclick="switchTab('all')">All</button>
+  </div>
+
+  <div id="request-list"></div>
+</div>
+
+<script>
+const API = window.location.origin;
+let allRequests = [];
+let currentTab = 'pending';
+
+async function fetchRequests() {
+  try {
+    const res = await fetch(`${API}/api/requests`);
+    allRequests = await res.json();
+    updateCounts();
+    renderRequests();
+  } catch (e) {
+    console.error('Failed to fetch:', e);
+  }
+}
+
+function updateCounts() {
+  const pending = allRequests.filter(r => r.status === 'pending').length;
+  const responded = allRequests.filter(r => r.status !== 'pending').length;
+  document.getElementById('pending-count').textContent = pending;
+  document.getElementById('total-count').textContent = allRequests.length;
+  document.getElementById('tab-pending-count').textContent = pending;
+  document.getElementById('tab-responded-count').textContent = responded;
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  renderRequests();
+}
+
+function renderRequests() {
+  const list = document.getElementById('request-list');
+  let filtered;
+  if (currentTab === 'pending') {
+    filtered = allRequests.filter(r => r.status === 'pending');
+    filtered.sort((a, b) => {
+      const p = {critical:0, high:1, normal:2, low:3};
+      return (p[a.priority]||2) - (p[b.priority]||2) || a.created_at.localeCompare(b.created_at);
+    });
+  } else if (currentTab === 'responded') {
+    filtered = allRequests.filter(r => r.status !== 'pending');
+  } else {
+    filtered = allRequests;
+  }
+
+  if (filtered.length === 0) {
+    const msg = currentTab === 'pending' ? 'No pending approvals. The queue is clear.' : 'No requests yet.';
+    list.innerHTML = `<div class="empty-state">${msg}</div>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(r => renderCard(r)).join('');
+}
+
+function renderCard(r) {
+  const ago = timeAgo(r.created_at);
+  const priorityBadge = r.priority !== 'normal' ? `<span class="priority-badge ${r.priority}">${r.priority}</span>` : '';
+  const statusBadge = `<span class="status-badge ${r.status}">${r.status}</span>`;
+
+  let planHtml = '';
+  if (r.plan) {
+    planHtml = `<div class="request-plan">${escHtml(r.plan)}</div>`;
+  }
+
+  let contextHtml = '';
+  if (r.context) {
+    contextHtml = `<div class="request-context">${escHtml(r.context)}</div>`;
+  }
+
+  let tagsHtml = '';
+  if (r.tags && r.tags.length) {
+    tagsHtml = `<div class="request-tags">${r.tags.map(t => `<span class="tag">${escHtml(t)}</span>`).join('')}</div>`;
+  }
+
+  let actionsHtml = '';
+  let responseHtml = '';
+
+  if (r.status === 'pending') {
+    const hasSchema = r.conditions_schema && r.conditions_schema.length > 0;
+    actionsHtml = `
+      <div class="actions">
+        <button class="btn btn-approve" onclick="respond('${r.id}', 'approved')">Approve</button>
+        <button class="btn btn-deny" onclick="respond('${r.id}', 'denied')">Deny</button>
+        ${hasSchema ? `<button class="btn btn-conditional" onclick="showConditions('${r.id}')">Conditional</button>` : ''}
+      </div>
+      ${hasSchema ? renderConditionsForm(r) : ''}
+    `;
+  } else if (r.response) {
+    const resp = r.response;
+    responseHtml = `<div class="response-box ${r.status}">`;
+    responseHtml += `<strong>${r.status === 'approved' ? 'Approved' : r.status === 'denied' ? 'Denied' : 'Conditionally Approved'}</strong>`;
+    if (resp.responder) responseHtml += ` by ${escHtml(resp.responder)}`;
+    if (resp.responded_at) responseHtml += ` <span style="color:var(--text-dim)">${timeAgo(resp.responded_at)}</span>`;
+    if (resp.comment) responseHtml += `<div class="response-comment">${escHtml(resp.comment)}</div>`;
+    if (resp.conditions && Object.keys(resp.conditions).length > 0) {
+      responseHtml += '<dl class="response-conditions">';
+      for (const [k, v] of Object.entries(resp.conditions)) {
+        responseHtml += `<dt>${escHtml(k)}</dt><dd>${escHtml(String(v))}</dd>`;
+      }
+      responseHtml += '</dl>';
+    }
+    responseHtml += '</div>';
+  }
+
+  return `
+    <div class="request-card priority-${r.priority} status-${r.status}">
+      <div class="request-header">
+        <span class="request-title">${escHtml(r.title)}</span>
+        <div class="request-meta">${priorityBadge} ${statusBadge}</div>
+      </div>
+      ${contextHtml}
+      ${planHtml}
+      ${responseHtml}
+      <div class="request-footer">
+        <span>${r.requester ? `from ${escHtml(r.requester)}` : ''} ${ago}</span>
+        ${tagsHtml}
+      </div>
+      ${actionsHtml}
+    </div>
+  `;
+}
+
+function renderConditionsForm(r) {
+  const fields = r.conditions_schema.map(f => {
+    const req = f.required ? '<span class="required">*</span>' : '';
+    let input;
+    if (f.type === 'boolean') {
+      input = `<select data-key="${escAttr(f.key)}"><option value="">--</option><option value="true">Yes</option><option value="false">No</option></select>`;
+    } else if (f.type === 'select' && f.options.length) {
+      const opts = f.options.map(o => `<option value="${escAttr(o)}">${escHtml(o)}</option>`).join('');
+      input = `<select data-key="${escAttr(f.key)}"><option value="">--</option>${opts}</select>`;
+    } else if (f.type === 'number') {
+      input = `<input type="number" data-key="${escAttr(f.key)}" placeholder="${escAttr(f.description)}">`;
+    } else {
+      input = `<textarea data-key="${escAttr(f.key)}" placeholder="${escAttr(f.description)}" rows="2"></textarea>`;
+    }
+    return `<div class="condition-field"><label>${escHtml(f.label)} ${req}</label>${input}</div>`;
+  }).join('');
+
+  return `
+    <div class="conditions-form" id="cond-${r.id}">
+      <h4>Set conditions for approval</h4>
+      ${fields}
+      <div class="conditions-actions">
+        <button class="btn btn-conditional" onclick="submitConditional('${r.id}')">Submit Conditions</button>
+        <button class="btn" onclick="hideConditions('${r.id}')">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+function showConditions(id) {
+  const form = document.getElementById('cond-' + id);
+  if (form) form.classList.add('visible');
+}
+function hideConditions(id) {
+  const form = document.getElementById('cond-' + id);
+  if (form) form.classList.remove('visible');
+}
+
+async function respond(id, status) {
+  let comment = '';
+  if (status === 'denied') {
+    comment = prompt('Reason for denial (optional):') || '';
+  } else if (status === 'approved') {
+    comment = prompt('Comment (optional):') || '';
+  }
+  if (comment === null) return; // cancelled
+
+  try {
+    const res = await fetch(`${API}/api/requests/${id}/respond`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ status, comment, responder: '' })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert(err.detail || 'Error');
+      return;
+    }
+    fetchRequests();
+  } catch (e) {
+    alert('Network error');
+  }
+}
+
+async function submitConditional(id) {
+  const form = document.getElementById('cond-' + id);
+  const inputs = form.querySelectorAll('[data-key]');
+  const conditions = {};
+  inputs.forEach(el => {
+    const val = el.value.trim();
+    if (val) conditions[el.dataset.key] = val;
+  });
+
+  const comment = prompt('Additional comment (optional):') || '';
+
+  try {
+    const res = await fetch(`${API}/api/requests/${id}/respond`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ status: 'conditional', conditions, comment, responder: '' })
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert(err.detail || 'Error');
+      return;
+    }
+    fetchRequests();
+  } catch (e) {
+    alert('Network error');
+  }
+}
+
+function timeAgo(iso) {
+  const ms = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(ms/1000), m = Math.floor(s/60), h = Math.floor(m/60), d = Math.floor(h/24);
+  if (d > 0) return d + 'd ago';
+  if (h > 0) return h + 'h ago';
+  if (m > 0) return m + 'm ago';
+  return 'just now';
+}
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escAttr(s) { return s.replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+
+fetchRequests();
+setInterval(fetchRequests, 10000);
+</script>
+</body>
+</html>
