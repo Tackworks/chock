@@ -21,6 +21,19 @@ python server.py
 
 Open `http://localhost:8796` in your browser.
 
+### Docker
+
+```bash
+docker compose up -d
+```
+
+Or build manually:
+
+```bash
+docker build -t chock .
+docker run -d -p 8796:8796 -v chock-data:/data chock
+```
+
 ## For AI Agents
 
 Give your agent the contents of [TOOL.md](TOOL.md) as context. It contains:

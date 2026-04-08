@@ -1,0 +1,11 @@
+services:
+  chock:
+    build: .
+    ports:
+      - "8796:8796"
+    volumes:
+      - chock-data:/data
+    restart: unless-stopped
+
+volumes:
+  chock-data:
