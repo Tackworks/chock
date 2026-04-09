@@ -12,6 +12,8 @@ The key feature is **contingent approvals**. Not just yes/no — you can approve
 
 No SDK. No vendor lock-in. Pure HTTP. Any agent framework, any model.
 
+**Status: alpha.** Developed and tested internally on sandboxed development machines. If you deploy this: inspect the code, run in a VM or isolated environment, and back up your data before upgrading. This has not been independently security audited.
+
 ## Quick Start
 
 ```bash

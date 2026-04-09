@@ -42,6 +42,16 @@ _BLOCKED_NETWORKS = [
     ipaddress.ip_network("169.254.0.0/16"),
 ]
 
+def _is_private_ip(addr) -> bool:
+    """Check if an IP address is in a blocked private range."""
+    if addr == ipaddress.ip_address("::1"):
+        return True
+    for network in _BLOCKED_NETWORKS:
+        if addr in network:
+            return True
+    return False
+
+
 def is_url_safe(url: str) -> bool:
     """Validate that a URL is safe to call (no SSRF to internal networks).
 
@@ -49,7 +59,14 @@ def is_url_safe(url: str) -> bool:
     - Non-http(s) schemes
     - Private/loopback IPv4 ranges: 10/8, 172.16/12, 192.168/16, 127/8, 169.254/16
     - IPv6 loopback (::1)
+    - Hostnames that resolve to private IPs
+
+    Note: This does not fully prevent DNS rebinding (TOCTOU between resolve and
+    request). For alpha software this is acceptable. A production deployment should
+    use a custom resolver or proxy that pins DNS results.
     """
+    import socket
+
     try:
         parsed = urlparse(url)
     except Exception:
@@ -62,21 +79,25 @@ def is_url_safe(url: str) -> bool:
     if not hostname:
         return False
 
+    # Check raw IP literals first
     try:
         addr = ipaddress.ip_address(hostname)
+        return not _is_private_ip(addr)
     except ValueError:
-        # Not a raw IP — hostname like "example.com" is allowed.
-        # DNS rebinding is out of scope for this check.
-        return True
+        pass
 
-    # Check IPv6 loopback
-    if addr == ipaddress.ip_address("::1"):
-        return False
-
-    # Check blocked IPv4 ranges
-    for network in _BLOCKED_NETWORKS:
-        if addr in network:
+    # Resolve hostname and check all resulting IPs
+    try:
+        results = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        if not results:
             return False
+        for family, _, _, _, sockaddr in results:
+            addr = ipaddress.ip_address(sockaddr[0])
+            if _is_private_ip(addr):
+                return False
+    except (socket.gaierror, OSError):
+        # DNS resolution failed — block the request
+        return False
 
     return True
 
@@ -209,7 +230,7 @@ class ConditionField(BaseModel):
     key: str = Field(max_length=100)
     label: str = Field(max_length=500)
     type: str = "text"  # text, number, boolean, select
-    options: list[str] = []  # for select type
+    options: list[str] = Field(default=[], max_length=100)  # for select type
     required: bool = False
     description: str = Field(default="", max_length=2000)
 
@@ -221,7 +242,7 @@ class ApprovalCreate(BaseModel):
     tags: list[str] = Field(default=[], max_length=50)
     priority: str = "normal"
     callback_url: str = Field(default="", max_length=2000)
-    conditions_schema: list[ConditionField] = []
+    conditions_schema: list[ConditionField] = Field(default=[], max_length=50)
 
     @field_validator("tags")
     @classmethod
@@ -235,7 +256,7 @@ class ApprovalRespond(BaseModel):
     status: str  # approved, denied, conditional
     responder: str = Field(default="", max_length=200)
     comment: str = Field(default="", max_length=10000)
-    conditions: dict = {}  # filled in for conditional approvals
+    conditions: dict = Field(default={}, max_length=50)  # filled in for conditional approvals
 
 
 # --- Helpers ---
@@ -291,8 +312,11 @@ def create_request(req: ApprovalCreate):
 @app.get("/api/requests")
 def list_requests(status: Optional[str] = None, requester: Optional[str] = None,
                   q: Optional[str] = None, priority: Optional[str] = None,
-                  tag: Optional[str] = None):
+                  tag: Optional[str] = None, limit: int = 200, offset: int = 0):
     """List approval requests with optional filters."""
+    limit = max(1, min(limit, 1000))
+    offset = max(0, offset)
+
     query = "SELECT * FROM requests WHERE 1=1"
     params = []
     if status:
@@ -314,7 +338,8 @@ def list_requests(status: Optional[str] = None, requester: Optional[str] = None,
     if tag:
         query += " AND tags LIKE ?"
         params.append(f'%"{tag}"%')
-    query += " ORDER BY created_at DESC"
+    query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
 
     with get_db() as db:
         rows = db.execute(query, params).fetchall()

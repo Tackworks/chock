@@ -10,6 +10,7 @@ import os
 import time
 import tempfile
 from pathlib import Path
+import socket
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -566,22 +567,31 @@ class TestActivityLog:
 # ---------------------------------------------------------------------------
 
 class TestWebhooks:
-    def test_webhook_fires_on_create(self, client, tmp_path):
-        """Webhooks fire when a request is created."""
-        # We need to reload the server module with CHOCK_WEBHOOKS set
-        os.environ["CHOCK_WEBHOOKS"] = "http://hook.example.com/create"
+    """Webhook tests mock is_url_safe to bypass DNS resolution for fake hostnames."""
+
+    def _reload_with_webhooks(self, webhook_env=None):
+        """Reload server module with optional CHOCK_WEBHOOKS."""
+        if webhook_env:
+            os.environ["CHOCK_WEBHOOKS"] = webhook_env
+        else:
+            os.environ.pop("CHOCK_WEBHOOKS", None)
         import importlib
         import server as srv
         importlib.reload(srv)
+        return srv
 
-        with patch.object(srv.urllib.request, "urlopen") as mock_urlopen, \
+    def test_webhook_fires_on_create(self, client, tmp_path):
+        """Webhooks fire when a request is created."""
+        srv = self._reload_with_webhooks("http://hook.example.com/create")
+
+        with patch.object(srv, "is_url_safe", return_value=True), \
+             patch.object(srv.urllib.request, "urlopen") as mock_urlopen, \
              TestClient(srv.app) as wh_client:
             resp = wh_client.post("/api/requests", json={
                 "title": "Webhook test", "requester": "jim"
             })
             assert resp.status_code == 201
 
-            # Give the background thread a moment to fire
             import time
             time.sleep(0.3)
 
@@ -594,18 +604,15 @@ class TestWebhooks:
             assert body["details"]["requester"] == "jim"
 
     def test_webhook_fires_on_approve(self, client, tmp_path):
-        os.environ["CHOCK_WEBHOOKS"] = "http://hook.example.com/respond"
-        import importlib
-        import server as srv
-        importlib.reload(srv)
+        srv = self._reload_with_webhooks("http://hook.example.com/respond")
 
-        with patch.object(srv.urllib.request, "urlopen") as mock_urlopen, \
+        with patch.object(srv, "is_url_safe", return_value=True), \
+             patch.object(srv.urllib.request, "urlopen") as mock_urlopen, \
              TestClient(srv.app) as wh_client:
             req_id = wh_client.post("/api/requests", json={
                 "title": "Approve me", "requester": "jim"
             }).json()["id"]
 
-            # Reset mock to isolate the approve webhook call
             mock_urlopen.reset_mock()
 
             wh_client.post(f"/api/requests/{req_id}/respond", json={
@@ -621,12 +628,10 @@ class TestWebhooks:
             assert body["details"]["responder"] == "jon"
 
     def test_webhook_fires_on_deny(self, client, tmp_path):
-        os.environ["CHOCK_WEBHOOKS"] = "http://hook.example.com/respond"
-        import importlib
-        import server as srv
-        importlib.reload(srv)
+        srv = self._reload_with_webhooks("http://hook.example.com/respond")
 
-        with patch.object(srv.urllib.request, "urlopen") as mock_urlopen, \
+        with patch.object(srv, "is_url_safe", return_value=True), \
+             patch.object(srv.urllib.request, "urlopen") as mock_urlopen, \
              TestClient(srv.app) as wh_client:
             req_id = wh_client.post("/api/requests", json={
                 "title": "Deny me", "requester": "jim"
@@ -645,12 +650,10 @@ class TestWebhooks:
             assert body["event"] == "request_denied"
 
     def test_webhook_fires_conditional_with_conditions(self, client, tmp_path):
-        os.environ["CHOCK_WEBHOOKS"] = "http://hook.example.com/respond"
-        import importlib
-        import server as srv
-        importlib.reload(srv)
+        srv = self._reload_with_webhooks("http://hook.example.com/respond")
 
-        with patch.object(srv.urllib.request, "urlopen") as mock_urlopen, \
+        with patch.object(srv, "is_url_safe", return_value=True), \
+             patch.object(srv.urllib.request, "urlopen") as mock_urlopen, \
              TestClient(srv.app) as wh_client:
             req_id = wh_client.post("/api/requests", json={
                 "title": "Conditional me", "requester": "jim"
@@ -672,12 +675,10 @@ class TestWebhooks:
             assert body["details"]["conditions"]["budget"] == 500
 
     def test_multiple_webhook_urls(self, client, tmp_path):
-        os.environ["CHOCK_WEBHOOKS"] = "http://hook1.example.com,http://hook2.example.com"
-        import importlib
-        import server as srv
-        importlib.reload(srv)
+        srv = self._reload_with_webhooks("http://hook1.example.com,http://hook2.example.com")
 
-        with patch.object(srv.urllib.request, "urlopen") as mock_urlopen, \
+        with patch.object(srv, "is_url_safe", return_value=True), \
+             patch.object(srv.urllib.request, "urlopen") as mock_urlopen, \
              TestClient(srv.app) as wh_client:
             wh_client.post("/api/requests", json={"title": "Multi-hook"})
 
@@ -687,10 +688,7 @@ class TestWebhooks:
 
     def test_no_webhooks_when_empty(self, client, tmp_path):
         """No webhook calls when CHOCK_WEBHOOKS is not set."""
-        os.environ.pop("CHOCK_WEBHOOKS", None)
-        import importlib
-        import server as srv
-        importlib.reload(srv)
+        srv = self._reload_with_webhooks(None)
 
         with patch.object(srv.urllib.request, "urlopen") as mock_urlopen, \
              TestClient(srv.app) as wh_client:
@@ -700,12 +698,10 @@ class TestWebhooks:
 
     def test_callback_fires_on_respond(self, client, tmp_path):
         """When a request has a callback_url, it fires on response."""
-        os.environ.pop("CHOCK_WEBHOOKS", None)
-        import importlib
-        import server as srv
-        importlib.reload(srv)
+        srv = self._reload_with_webhooks(None)
 
-        with patch.object(srv.urllib.request, "urlopen") as mock_urlopen, \
+        with patch.object(srv, "is_url_safe", return_value=True), \
+             patch.object(srv.urllib.request, "urlopen") as mock_urlopen, \
              TestClient(srv.app) as wh_client:
             req_id = wh_client.post("/api/requests", json={
                 "title": "Callback test",
@@ -721,7 +717,6 @@ class TestWebhooks:
 
             time.sleep(0.3)
 
-            # Should have fired the callback (no webhooks configured)
             mock_urlopen.assert_called_once()
             req_obj = mock_urlopen.call_args[0][0]
             assert req_obj.full_url == "http://agent.local/callback"
@@ -886,3 +881,124 @@ class TestAuth:
                 assert resp.json()["status"] == "ok"
         finally:
             self._cleanup_env()
+
+    def test_auth_blocks_delete_without_key(self, tmp_path):
+        """DELETE /api/requests/{id} requires API key."""
+        tc = self._make_auth_client(tmp_path)
+        try:
+            with tc:
+                # Create with key first
+                resp = tc.post("/api/requests",
+                               json={"title": "Delete me"},
+                               headers={"X-API-Key": "test-secret-key"})
+                req_id = resp.json()["id"]
+                # Try delete without key
+                resp = tc.delete(f"/api/requests/{req_id}")
+                assert resp.status_code == 401
+        finally:
+            self._cleanup_env()
+
+    def test_auth_allows_delete_with_key(self, tmp_path):
+        """DELETE /api/requests/{id} works with correct API key."""
+        tc = self._make_auth_client(tmp_path)
+        try:
+            with tc:
+                resp = tc.post("/api/requests",
+                               json={"title": "Delete me"},
+                               headers={"X-API-Key": "test-secret-key"})
+                req_id = resp.json()["id"]
+                resp = tc.delete(f"/api/requests/{req_id}",
+                                 headers={"X-API-Key": "test-secret-key"})
+                assert resp.status_code == 200
+        finally:
+            self._cleanup_env()
+
+    def test_auth_blocks_respond_without_key(self, tmp_path):
+        """POST /api/requests/{id}/respond requires API key."""
+        tc = self._make_auth_client(tmp_path)
+        try:
+            with tc:
+                resp = tc.post("/api/requests",
+                               json={"title": "Respond test"},
+                               headers={"X-API-Key": "test-secret-key"})
+                req_id = resp.json()["id"]
+                resp = tc.post(f"/api/requests/{req_id}/respond",
+                               json={"status": "approved"})
+                assert resp.status_code == 401
+        finally:
+            self._cleanup_env()
+
+    def test_auth_allows_respond_with_key(self, tmp_path):
+        """POST /api/requests/{id}/respond works with correct API key."""
+        tc = self._make_auth_client(tmp_path)
+        try:
+            with tc:
+                resp = tc.post("/api/requests",
+                               json={"title": "Respond test"},
+                               headers={"X-API-Key": "test-secret-key"})
+                req_id = resp.json()["id"]
+                resp = tc.post(f"/api/requests/{req_id}/respond",
+                               json={"status": "approved"},
+                               headers={"X-API-Key": "test-secret-key"})
+                assert resp.status_code == 200
+        finally:
+            self._cleanup_env()
+
+
+# ---------------------------------------------------------------------------
+# SSRF protection tests
+# ---------------------------------------------------------------------------
+
+class TestSSRFProtection:
+    """Test that is_url_safe blocks private IPs and resolving hostnames."""
+
+    def test_blocks_localhost_ip(self):
+        import server as srv
+        assert srv.is_url_safe("http://127.0.0.1/hook") is False
+
+    def test_blocks_private_10(self):
+        import server as srv
+        assert srv.is_url_safe("http://10.0.0.1/hook") is False
+
+    def test_blocks_private_192(self):
+        import server as srv
+        assert srv.is_url_safe("http://192.168.1.1/hook") is False
+
+    def test_blocks_private_172(self):
+        import server as srv
+        assert srv.is_url_safe("http://172.16.0.1/hook") is False
+
+    def test_blocks_ipv6_loopback(self):
+        import server as srv
+        assert srv.is_url_safe("http://[::1]/hook") is False
+
+    def test_blocks_non_http_scheme(self):
+        import server as srv
+        assert srv.is_url_safe("ftp://example.com/hook") is False
+
+    def test_blocks_no_hostname(self):
+        import server as srv
+        assert srv.is_url_safe("http:///no-host") is False
+
+    @patch("socket.getaddrinfo", return_value=[
+        (2, 1, 6, '', ('93.184.216.34', 0)),
+    ])
+    def test_allows_public_hostname(self, mock_dns):
+        import server as srv
+        assert srv.is_url_safe("http://example.com/hook") is True
+
+    @patch("socket.getaddrinfo", return_value=[
+        (2, 1, 6, '', ('127.0.0.1', 0)),
+    ])
+    def test_blocks_hostname_resolving_to_localhost(self, mock_dns):
+        import server as srv
+        assert srv.is_url_safe("http://evil.attacker.com/hook") is False
+
+    @patch("socket.getaddrinfo", return_value=[
+        (2, 1, 6, '', ('93.184.216.34', 0)),
+        (2, 1, 6, '', ('10.0.0.1', 0)),
+    ])
+    def test_blocks_hostname_with_any_private_resolution(self, mock_dns):
+        """If ANY resolved IP is private, block the request."""
+        import server as srv
+        assert srv.is_url_safe("http://dual-homed.attacker.com/hook") is False
