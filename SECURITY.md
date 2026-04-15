@@ -9,7 +9,7 @@ Tackworks projects (Tack, Chock, Spur) are **self-hosted tools designed to run o
 The following are **intentional design decisions**, not vulnerabilities:
 
 - **Optional API key auth only.** Chock supports a shared API key (`CHOCK_API_KEY` env var) that protects write operations. Reads remain open. This is a basic guard, not a full auth system. For production deployments, use a reverse proxy (Caddy, nginx, Traefik) or a VPN (Tailscale, WireGuard) to control access.
-- **Web UI does not send the API key.** When `CHOCK_API_KEY` is set, the web UI's write operations (approve, deny, conditional responses) will fail with 401 errors because the frontend JavaScript does not include the key in request headers. This is a known gap, not a design decision. API clients that include the key work correctly. A fix is planned.
+- **Web UI API key stored in localStorage.** When `CHOCK_API_KEY` is set, the web UI prompts for the key and stores it in the browser's localStorage. The key is sent as an `X-API-Key` header on write operations. localStorage is accessible to any script on the same origin — if you need stronger isolation, use a reverse proxy for auth instead.
 - **No built-in HTTPS.** Same reason. Terminate TLS at your reverse proxy.
 - **No rate limiting.** Handled at the infrastructure layer, not the application layer.
 

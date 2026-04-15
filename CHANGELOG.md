@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.0] - 2026-04-15
+
+### Added
+- **Web UI API key support** — when `CHOCK_API_KEY` is set, the web UI now prompts for the key on the first write attempt, stores it in localStorage, and includes it in all subsequent write requests. A lock icon in the header shows auth state and allows clearing the stored key.
+
 ## [1.1.0] - 2026-04-08
 
 ### Added

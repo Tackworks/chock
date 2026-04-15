@@ -302,6 +302,42 @@ header h1 span { color: var(--text-dim); font-weight: 400; font-size: 14px; marg
   font-size: 11px;
   margin-left: 4px;
 }
+
+#auth-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 8px;
+  line-height: 1;
+  transition: color 0.2s;
+}
+#auth-btn:hover { color: var(--text); }
+
+.auth-modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 300;
+  justify-content: center; align-items: center;
+}
+.auth-modal-overlay.active { display: flex; }
+.auth-modal {
+  background: var(--surface); border: 1px solid var(--blue); border-radius: 8px;
+  padding: 16px 20px; width: 360px;
+}
+.auth-modal h3 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.auth-modal p { font-size: 13px; color: var(--text-dim); margin-bottom: 12px; }
+.auth-modal input {
+  width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  font-size: 13px; padding: 8px 10px; border-radius: 6px; font-family: inherit;
+}
+.auth-modal .auth-modal-buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.auth-modal .auth-modal-buttons button {
+  padding: 6px 14px; border-radius: 6px; font-size: 13px;
+  cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+}
+.auth-modal .auth-modal-buttons .btn-primary { border-color: var(--blue); color: var(--blue); }
+.auth-modal .auth-modal-buttons .btn-primary:hover { background: var(--blue-bg); }
 </style>
 </head>
 <body>
@@ -314,9 +350,22 @@ header h1 span { color: var(--text-dim); font-weight: 400; font-size: 14px; marg
       <div><span class="stat-num" id="pending-count">0</span> pending</div>
       <div><span class="stat-num" id="total-count">0</span> total</div>
     </div>
+    <button id="auth-btn" onclick="onAuthBtnClick()" title="API key">&#128275;</button>
     <button id="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#9789;</button>
   </div>
 </header>
+
+<div class="auth-modal-overlay" id="auth-overlay">
+  <div class="auth-modal">
+    <h3>API Key Required</h3>
+    <p>This server requires an API key for write operations. Enter it below — it will be stored in your browser.</p>
+    <input type="password" id="auth-key-input" placeholder="Enter API key">
+    <div class="auth-modal-buttons">
+      <button onclick="hideAuthModal()">Cancel</button>
+      <button class="btn-primary" onclick="submitAuthKey()">Save</button>
+    </div>
+  </div>
+</div>
 
 <div class="container">
   <div class="tabs">
@@ -330,9 +379,70 @@ header h1 span { color: var(--text-dim); font-weight: 400; font-size: 14px; marg
 
 <script>
 const API = window.location.origin;
+const AUTH_KEY = 'chock-api-key';
 let allRequests = [];
 let currentTab = 'pending';
 let searchQuery = '';
+
+// --- API Key Auth ---
+async function authFetch(url, options = {}) {
+  const key = localStorage.getItem(AUTH_KEY);
+  if (key) {
+    options.headers = { ...options.headers, 'X-API-Key': key };
+  }
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    localStorage.removeItem(AUTH_KEY);
+    updateAuthIcon();
+    showAuthModal();
+  }
+  return res;
+}
+
+function showAuthModal() {
+  document.getElementById('auth-key-input').value = '';
+  document.getElementById('auth-overlay').classList.add('active');
+  document.getElementById('auth-key-input').focus();
+}
+
+function hideAuthModal() {
+  document.getElementById('auth-overlay').classList.remove('active');
+}
+
+function submitAuthKey() {
+  const key = document.getElementById('auth-key-input').value.trim();
+  if (!key) return;
+  localStorage.setItem(AUTH_KEY, key);
+  updateAuthIcon();
+  hideAuthModal();
+}
+
+function onAuthBtnClick() {
+  if (localStorage.getItem(AUTH_KEY)) {
+    if (confirm('Clear stored API key?')) {
+      localStorage.removeItem(AUTH_KEY);
+      updateAuthIcon();
+    }
+  } else {
+    showAuthModal();
+  }
+}
+
+function updateAuthIcon() {
+  const btn = document.getElementById('auth-btn');
+  if (localStorage.getItem(AUTH_KEY)) {
+    btn.innerHTML = '&#128274;';
+    btn.title = 'API key set (click to clear)';
+  } else {
+    btn.innerHTML = '&#128275;';
+    btn.title = 'No API key (click to set)';
+  }
+}
+
+document.getElementById('auth-overlay').onclick = (e) => { if (e.target === e.currentTarget) hideAuthModal(); };
+document.getElementById('auth-key-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); submitAuthKey(); }
+});
 
 // --- Theme ---
 function getTheme() { return localStorage.getItem('chock-theme') || 'dark'; }
@@ -357,6 +467,7 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     document.getElementById('search-input').focus();
   }
+  if (e.key === 'Escape') { hideAuthModal(); }
   if (e.key === 'Escape' && document.activeElement === document.getElementById('search-input')) {
     document.getElementById('search-input').value = '';
     searchQuery = '';
@@ -549,7 +660,7 @@ async function respond(id, status) {
   if (comment === null) return; // cancelled
 
   try {
-    const res = await fetch(`${API}/api/requests/${id}/respond`, {
+    const res = await authFetch(`${API}/api/requests/${id}/respond`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ status, comment, responder: '' })
@@ -577,7 +688,7 @@ async function submitConditional(id) {
   const comment = prompt('Additional comment (optional):') || '';
 
   try {
-    const res = await fetch(`${API}/api/requests/${id}/respond`, {
+    const res = await authFetch(`${API}/api/requests/${id}/respond`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ status: 'conditional', conditions, comment, responder: '' })
@@ -604,6 +715,7 @@ function timeAgo(iso) {
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function escAttr(s) { return s.replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 
+updateAuthIcon();
 fetchRequests();
 setInterval(fetchRequests, 10000);
 </script>

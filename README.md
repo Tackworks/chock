@@ -14,7 +14,7 @@ No SDK. No vendor lock-in. Pure HTTP. Any agent framework, any model.
 
 **Status: alpha.** Developed and tested internally on sandboxed development machines. If you deploy this: inspect the code, run in a VM or isolated environment, and back up your data before upgrading. This has not been independently security audited. See [SECURITY.md](SECURITY.md) for details.
 
-**Auth note:** If you set `CHOCK_API_KEY`, the server will require the key for all write operations via the API. However, the web UI does not currently send the API key with its requests. This means approving, denying, and submitting conditional responses from the UI will be rejected by the server when a key is set. Agent API calls (which include the key in headers) will work correctly. Web UI auth support is planned.
+**Auth note:** If you set `CHOCK_API_KEY`, the server will require the key for all write operations. The web UI will prompt for the key on the first write attempt and store it in your browser's localStorage. A lock icon in the header shows whether a key is stored.
 
 ## Quick Start
 
@@ -107,7 +107,6 @@ Provide a `callback_url` in your request and Chock will POST the full response w
 
 ## Known Limitations
 
-- **Web UI does not support API key auth.** If `CHOCK_API_KEY` is set, the web UI cannot perform write operations (approve, deny, submit conditional responses). API clients that send the key in headers work fine. Fix planned for next release.
 - **No built-in HTTPS or rate limiting.** Use a reverse proxy for production deployments. See [SECURITY.md](SECURITY.md).
 
 ## Dependencies
